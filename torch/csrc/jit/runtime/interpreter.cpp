@@ -23,6 +23,8 @@
 #include <torch/csrc/jit/runtime/operator.h>
 #include <torch/csrc/jit/runtime/profiling_record.h>
 #include <torch/csrc/jit/runtime/vararg_functions.h>
+#include <ATen/core/overloaded_function.h>
+#include "NativeFunctions.h"
 
 #ifdef USE_RPC
 #include <torch/csrc/distributed/autograd/context/container.h>
@@ -940,7 +942,16 @@ struct CodeImpl {
         break;
       case prim::CallMethod:
         if (auto class_type = node->inputs().at(0)->type()->cast<ClassType>()) {
-          emitCall(&class_type->getMethod(node->s(attr::name)), node->inputs());
+          // TODO: this is pretty bad because we are doing schema matching again here.
+          // I can't really think of a way we can avoid this step. Maybe messing with the
+          // method names and do table lookup?
+          if (class_type->findOverloadedMethod(node->s(attr::name)).size() > 1) {
+            auto overloaded_method =
+                class_type->getMangledOverloadedMethod(node->s(attr::name));
+            emitCall(overloaded_method, node->inputs());
+          } else {
+            emitCall(&class_type->getMethod(node->s(attr::name)), node->inputs());
+          }
         } else {
           emitInterfaceCall(node->s(attr::name), node->inputs());
         }
